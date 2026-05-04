@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { Upload, Shield, Database, Layout, ArrowRight, CheckCircle2, User, Lock, Mail } from 'lucide-react';
+import { Upload, Shield, Database, Network, ArrowRight, CheckCircle2, User, Lock, Mail } from 'lucide-react';
+import * as XLSX from 'xlsx';
+import { useData } from '../hooks/useData';
 
 const LandingPage = ({ onContinue }) => {
+  const { setSiteData, setKpiData } = useData();
   const [isLogin, setIsLogin] = useState(true);
   const [uploadedFiles, setUploadedFiles] = useState({});
   const [isAuth, setIsAuth] = useState(false);
@@ -17,8 +20,38 @@ const LandingPage = ({ onContinue }) => {
     { id: 'traffic', label: 'Traffic' },
   ];
 
-  const handleFileUpload = (id) => {
-    setUploadedFiles(prev => ({ ...prev, [id]: true }));
+  const handleFileUpload = (e, id) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const bstr = evt.target.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const data = XLSX.utils.sheet_to_json(ws);
+
+      if (id === 'macro') {
+        setSiteData(data);
+      } else {
+        setKpiData(prev => {
+          const newKpiData = { ...prev };
+          if (id.startsWith('cssr')) {
+            const tech = id.replace('cssr', '').toUpperCase();
+            newKpiData.cssr[tech] = data;
+          } else if (id.startsWith('dcr')) {
+            const tech = id.replace('dcr', '').toUpperCase();
+            newKpiData.dcr[tech] = data;
+          } else if (id === 'traffic') {
+            newKpiData.traffic = data;
+          }
+          return newKpiData;
+        });
+      }
+      setUploadedFiles(prev => ({ ...prev, [id]: true }));
+    };
+    reader.readAsBinaryString(file);
   };
 
   const handleAuth = (e) => {
@@ -39,9 +72,9 @@ const LandingPage = ({ onContinue }) => {
       <nav className="relative z-10 flex justify-between items-center px-12 py-8">
         <div className="flex items-center space-x-2">
           <div className="bg-brand-accent p-2 rounded-lg">
-            <Layout className="w-6 h-6 text-brand-dark" />
+            <Network className="w-6 h-6 text-brand-dark" />
           </div>
-          <span className="text-2xl font-bold tracking-wider">BRAV_QoS</span>
+          <span className="text-2xl font-black tracking-tighter">BRAV_QOS</span>
         </div>
         <div className="flex space-x-8 text-sm font-medium">
           <a href="#" className="hover:text-brand-accent transition">Solutions</a>
@@ -57,10 +90,10 @@ const LandingPage = ({ onContinue }) => {
             Network QoS <span className="text-brand-accent">Optimization</span> & Auto-Diagnosis
           </h1>
           <p className="text-xl text-slate-400 max-w-xl">
-            A professional platform designed for Huawei Cameroon to centralize, visualize, and analyze 
+            A professional platform designed for Huawei Cameroon to centralize, visualize, and analyze
             critical network KPIs across multiple vendors and technologies.
           </p>
-          
+
           <div className="grid grid-cols-2 gap-6 pt-4">
             <div className="flex items-center space-x-3 bg-slate-800/50 p-4 rounded-xl border border-slate-700">
               <Shield className="w-8 h-8 text-brand-accent" />
@@ -92,8 +125,8 @@ const LandingPage = ({ onContinue }) => {
                 {!isLogin && (
                   <div className="relative">
                     <User className="absolute left-3 top-3 w-5 h-5 text-slate-500" />
-                    <input 
-                      type="text" placeholder="Full Name" 
+                    <input
+                      type="text" placeholder="Full Name"
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-brand-accent transition"
                       required
                     />
@@ -101,16 +134,16 @@ const LandingPage = ({ onContinue }) => {
                 )}
                 <div className="relative">
                   <Mail className="absolute left-3 top-3 w-5 h-5 text-slate-500" />
-                  <input 
-                    type="email" placeholder="Email Address" 
+                  <input
+                    type="email" placeholder="Email Address"
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-brand-accent transition"
                     required
                   />
                 </div>
                 <div className="relative">
                   <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-500" />
-                  <input 
-                    type="password" placeholder="Password" 
+                  <input
+                    type="password" placeholder="Password"
                     className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-brand-accent transition"
                     required
                   />
@@ -118,14 +151,14 @@ const LandingPage = ({ onContinue }) => {
                 {!isLogin && (
                   <div className="relative">
                     <Lock className="absolute left-3 top-3 w-5 h-5 text-slate-500" />
-                    <input 
-                      type="password" placeholder="Confirm Password" 
+                    <input
+                      type="password" placeholder="Confirm Password"
                       className="w-full bg-slate-800 border border-slate-700 rounded-xl py-3 pl-10 pr-4 focus:outline-none focus:border-brand-accent transition"
                       required
                     />
                   </div>
                 )}
-                <button 
+                <button
                   type="submit"
                   className="w-full bg-brand-accent hover:bg-cyan-500 text-brand-dark font-bold py-4 rounded-xl transition transform active:scale-95"
                 >
@@ -134,7 +167,7 @@ const LandingPage = ({ onContinue }) => {
               </form>
 
               <div className="text-center">
-                <button 
+                <button
                   onClick={() => setIsLogin(!isLogin)}
                   className="text-slate-400 hover:text-white transition text-sm"
                 >
@@ -151,32 +184,36 @@ const LandingPage = ({ onContinue }) => {
 
               <div className="grid grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
                 {filesToUpload.map((file) => (
-                  <button
+                  <label
                     key={file.id}
-                    onClick={() => handleFileUpload(file.id)}
-                    className={`p-4 rounded-2xl border transition flex flex-col items-center justify-center space-y-2 group
-                      ${uploadedFiles[file.id] 
-                        ? 'bg-green-500/10 border-green-500 text-green-500' 
+                    className={`p-4 rounded-2xl border transition flex flex-col items-center justify-center space-y-2 group cursor-pointer
+                      ${uploadedFiles[file.id]
+                        ? 'bg-green-500/10 border-green-500 text-green-500'
                         : 'bg-slate-800/50 border-slate-700 hover:border-brand-accent text-slate-400 hover:text-white'
                       }`}
                   >
+                    <input
+                      type="file"
+                      accept=".xlsx, .xls, .csv"
+                      className="hidden"
+                      onChange={(e) => handleFileUpload(e, file.id)}
+                    />
                     {uploadedFiles[file.id] ? (
                       <CheckCircle2 className="w-8 h-8" />
                     ) : (
                       <Upload className="w-8 h-8 group-hover:scale-110 transition" />
                     )}
                     <span className="text-xs font-semibold">{file.label}</span>
-                  </button>
+                  </label>
                 ))}
               </div>
 
               <button
                 onClick={onContinue}
-                disabled={!allFilesUploaded}
                 className={`w-full flex items-center justify-center space-x-2 py-4 rounded-xl font-bold transition
-                  ${allFilesUploaded 
-                    ? 'bg-brand-accent hover:bg-cyan-500 text-brand-dark' 
-                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                  ${allFilesUploaded
+                    ? 'bg-brand-accent hover:bg-cyan-500 text-brand-dark'
+                    : 'bg-slate-800 text-slate-500'
                   }`}
               >
                 <span>Go to Dashboard</span>

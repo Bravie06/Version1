@@ -1,21 +1,43 @@
 import { useState, useMemo } from 'react';
 import DashboardLayout from '../components/DashboardLayout';
 import OverviewTable from '../components/OverviewTable';
-import CameroonMap from '../components/CameroonMap';
-import { 
+import InteractiveMap from '../components/InteractiveMap';
+import {
   LineChart, Line, ResponsiveContainer
 } from 'recharts';
-import { 
+import {
   Activity, Clock, Filter, Globe
 } from 'lucide-react';
 import { generateKPIData } from '../data/mockData';
+import { useData } from '../hooks/useData';
 
-const MiniCurve = ({ kpi, color = "#06b6d4" }) => {
-  const data = useMemo(() => generateKPIData(kpi), [kpi]);
+const MiniCurve = ({ kpi, color = "#06b6d4", tech }) => {
+  const { kpiData } = useData();
   const isTraffic = kpi.startsWith('TRAFFIC');
   const dataKey = isTraffic ? (kpi === 'TRAFFIC DATA' ? 'data' : 'voice') : 'value';
-  
-  const displayValue = isTraffic ? '842' : '98.5%';
+
+  const data = useMemo(() => {
+    if (isTraffic && kpiData.traffic.length > 0) {
+      return kpiData.traffic.slice(0, 7).map((d, i) => ({ name: i, data: d.value || d.Data || 0, voice: d.Voice || 0 }));
+    }
+    const techKey = tech || '4G';
+    const typeKey = kpi.toLowerCase();
+    if (kpiData[typeKey] && kpiData[typeKey][techKey] && kpiData[typeKey][techKey].length > 0) {
+      return kpiData[typeKey][techKey].slice(0, 7).map((d, i) => ({ name: i, value: d.value || d.Value || 0 }));
+    }
+    return generateKPIData(kpi);
+  }, [kpi, kpiData, isTraffic, tech]);
+
+  const displayValue = useMemo(() => {
+    if (data.length > 0) {
+      const last = data[data.length - 1];
+      const val = last[dataKey];
+      if (typeof val === 'number') {
+        return isTraffic ? val.toFixed(0) : val.toFixed(2) + '%';
+      }
+    }
+    return isTraffic ? '842' : '98.5%';
+  }, [data, dataKey, isTraffic]);
 
   return (
     <div className="bg-white dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm h-40">
@@ -28,12 +50,12 @@ const MiniCurve = ({ kpi, color = "#06b6d4" }) => {
       <div className="h-24 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
-            <Line 
-              type="monotone" 
-              dataKey={dataKey} 
-              stroke={color} 
-              strokeWidth={3} 
-              dot={false} 
+            <Line
+              type="monotone"
+              dataKey={dataKey}
+              stroke={color}
+              strokeWidth={3}
+              dot={false}
               animationDuration={1000}
             />
           </LineChart>
@@ -43,14 +65,14 @@ const MiniCurve = ({ kpi, color = "#06b6d4" }) => {
   );
 };
 
-const KPIContent = () => {
+const KPIContent = ({ tech }) => {
   return (
     <div className="animate-in fade-in duration-500">
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MiniCurve kpi="CSSR" />
-        <MiniCurve kpi="DCR" color="#ef4444" />
-        <MiniCurve kpi="TRAFFIC DATA" color="#10b981" />
-        <MiniCurve kpi="TRAFFIC VOICE" color="#3b82f6" />
+        <MiniCurve kpi="CSSR" tech={tech} />
+        <MiniCurve kpi="DCR" color="#ef4444" tech={tech} />
+        <MiniCurve kpi="TRAFFIC DATA" color="#10b981" tech={tech} />
+        <MiniCurve kpi="TRAFFIC VOICE" color="#3b82f6" tech={tech} />
       </div>
     </div>
   );
@@ -101,8 +123,8 @@ const DashboardPage = () => {
                   key={v}
                   onClick={() => setVendor(v)}
                   className={`px-8 py-3 rounded-2xl text-sm font-black transition-all transform hover:scale-105
-                    ${vendor === v 
-                      ? 'bg-brand-accent text-brand-dark shadow-xl shadow-brand-accent/20' 
+                    ${vendor === v
+                      ? 'bg-brand-accent text-brand-dark shadow-xl shadow-brand-accent/20'
                       : 'bg-slate-200 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white'
                     }`}
                 >
@@ -112,12 +134,12 @@ const DashboardPage = () => {
             </div>
           </div>
 
-          <KPIContent />
+          <KPIContent tech={tech} />
 
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-2 bg-white dark:bg-slate-900/50 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
               <Filter className="w-4 h-4 text-slate-400 ml-2" />
-              <select 
+              <select
                 value={tech}
                 onChange={(e) => setTech(e.target.value)}
                 className="bg-transparent border-none text-sm font-bold focus:ring-0 text-slate-700 dark:text-slate-300 pr-8"
@@ -127,7 +149,7 @@ const DashboardPage = () => {
                 <option value="4G">4G Technology</option>
               </select>
             </div>
-            
+
             <div className="flex items-center space-x-2 text-xs font-bold text-slate-400">
                <Activity className="w-4 h-4 text-brand-accent" />
                <span>Live Data Stream Active</span>
@@ -135,7 +157,7 @@ const DashboardPage = () => {
           </div>
 
           <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
-            <CameroonMap />
+            <InteractiveMap />
           </div>
         </div>
       );
@@ -151,8 +173,8 @@ const DashboardPage = () => {
   };
 
   return (
-    <DashboardLayout 
-      activeKPI={activeKPI} 
+    <DashboardLayout
+      activeKPI={activeKPI}
       setActiveKPI={setActiveKPI}
       activeView={activeView}
       setActiveView={setActiveView}

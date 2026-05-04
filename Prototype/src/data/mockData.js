@@ -16,7 +16,7 @@ export const generateKPIData = (kpiType) => {
   const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
   return days.map(day => ({
     name: day,
-    value: kpiType === 'TRAFFIC' ? Math.floor(Math.random() * 500) : (90 + Math.random() * 10).toFixed(2),
+    value: kpiType === 'TRAFFIC' ? Math.floor(Math.random() * 500) : (90 + Math.random() * 10),
     data: Math.floor(Math.random() * 1000),
     voice: Math.floor(Math.random() * 200),
   }));

@@ -34,3 +34,26 @@ body {
     @apply bg-slate-50 text-slate-900 dark:bg-brand-dark dark:text-slate-100;
   }
 }
+
+.map{
+    width: 291px;
+    height: 411px;
+    background: url('/images/map.png');
+    position: relative;    
+}
+.map .overlay{
+    width: 291px;
+    height: 411px;
+    background: url('/images/map.png') 291px;    
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 1;
+}
+.map img{
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 2;    
+}
+
