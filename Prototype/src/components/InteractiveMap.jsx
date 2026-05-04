@@ -2,11 +2,11 @@ import React, { useEffect, useRef, useState, useMemo } from 'react';
 import $ from 'jquery';
 import { MapPin, AlertCircle, ChevronRight, X } from 'lucide-react';
 import { useData } from '../hooks/useData';
-import { SITES_DATA } from '../data/mockData';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 const InteractiveMap = () => {
     const mapRef = useRef(null);
-    const { siteData } = useData();
+    const { db } = useData();
     const [selectedRegion, setSelectedRegion] = useState(null);
 
     const regionsList = [
@@ -61,13 +61,15 @@ const InteractiveMap = () => {
         };
     }, []);
 
-    const sitesInRegion = useMemo(() => {
-        const base = siteData && siteData.length > 0 ? siteData : SITES_DATA;
-        return base.filter(s => {
-          const reg = s.region || s.Region || s.REGION || '';
-          return reg.toString().toLowerCase() === (selectedRegion ? selectedRegion.toLowerCase() : '');
-        });
-      }, [siteData, selectedRegion]);
+    const sitesInRegion = useLiveQuery(async () => {
+      if (!selectedRegion) return [];
+      return await db.sites
+        .where('region')
+        .equalsIgnoreCase(selectedRegion)
+        .toArray();
+    }, [selectedRegion]);
+
+    const displaySites = sitesInRegion || [];
 
     return (
         <div className="flex flex-col xl:flex-row gap-8 h-full animate-in fade-in duration-700">
@@ -122,13 +124,13 @@ const InteractiveMap = () => {
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar max-h-[400px]">
-                    {sitesInRegion.map((site, i) => (
+                    {displaySites.map((site, i) => (
                       <div key={i} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 group hover:border-brand-accent transition cursor-pointer">
                         <div className="flex justify-between items-start mb-2">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-black
-                            ${site.status === 'Normal' ? 'bg-green-500/10 text-green-500' :
+                            ${(site.status || 'Normal') === 'Normal' ? 'bg-green-500/10 text-green-500' :
                               site.status === 'Degraded' ? 'bg-orange-500/10 text-orange-500' : 'bg-red-500/10 text-red-500'}`}>
-                            {site.status.toUpperCase()}
+                            {(site.status || 'NORMAL').toUpperCase()}
                           </span>
                           <ChevronRight className="w-4 h-4 text-slate-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
                         </div>
@@ -140,7 +142,7 @@ const InteractiveMap = () => {
                         </div>
                       </div>
                     ))}
-                    {sitesInRegion.length === 0 && (
+                    {displaySites.length === 0 && (
                       <div className="p-12 text-center text-slate-500">
                         <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-10" />
                         <p className="text-xs italic">No data for this region.</p>

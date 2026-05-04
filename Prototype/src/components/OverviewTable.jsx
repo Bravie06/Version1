@@ -1,30 +1,32 @@
 import { useState, useMemo } from 'react';
 import { Search, Filter, Download, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useData } from '../hooks/useData';
+import { useLiveQuery } from 'dexie-react-hooks';
 
 const OverviewTable = () => {
-  const { siteData } = useData();
+  const { db } = useData();
   const [searchTerm, setSearchTerm] = useState('');
 
-  const sitesWithValues = useMemo(() => {
-    const base = siteData.length > 0 ? siteData : [];
-    return base.map(site => {
-      const siteName = site.site_name || site.SiteName || site.SITE_NAME;
-      // Real logic to find KPI values for this site would go here
-      // For now, if real data is available, we show it, otherwise mock
+  const tableData = useLiveQuery(async () => {
+    const sites = await db.sites.toArray();
+    const kpis = await db.kpis.toArray();
+
+    return sites.map(site => {
+      const siteKpis = kpis.filter(k => k.site_code === site.site_code);
+      // Group by day/tech or just take last few
+      const last7 = siteKpis.sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 7).reverse();
+
       return {
         ...site,
-        site_name: siteName,
-        site_code: site.site_code || site.SiteCode || 'N/A',
-        town: site.town || site.Town || 'N/A',
-        vendor: site.vendor || site.Vendor || 'N/A',
-        region: site.region || site.Region || 'N/A',
-        status: site.status || 'Normal',
-        cssr_days: Array.from({length: 7}, () => (98 + Math.random() * 2).toFixed(2)),
-        dcr_days: Array.from({length: 7}, () => (0.1 + Math.random() * 0.5).toFixed(2)),
+        cssr_days: last7.map(k => k.cssr.toFixed(2)),
+        dcr_days: last7.map(k => k.dcr.toFixed(2)),
+        tech: last7[0]?.tech || 'N/A',
+        status: last7[0]?.cssr < 95 ? 'Degraded' : 'Normal'
       };
     });
-  }, [siteData]);
+  }, []);
+
+  const sitesWithValues = tableData || [];
 
   const filteredSites = sitesWithValues.filter(site =>
     (site.site_name && site.site_name.toString().toLowerCase().includes(searchTerm.toLowerCase())) ||
@@ -91,7 +93,7 @@ const OverviewTable = () => {
                     </span>
                   </td>
                   <td className="px-6 py-4">
-                    <div className="text-xs font-bold text-slate-600 dark:text-slate-400">4G</div>
+                    <div className="text-xs font-bold text-slate-600 dark:text-slate-400">{site.tech}</div>
                   </td>
                   {site.cssr_days.map((val, i) => (
                     <td key={i} className="px-4 py-4 text-center text-[11px] font-mono text-slate-600 dark:text-slate-400">
