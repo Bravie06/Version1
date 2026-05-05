@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Network, BarChart3, ShieldAlert,
-  FileText, Settings, Search, Sun,
-  ChevronDown, ChevronRight, Globe, X
+  FileText, Settings, Search, Sun, Moon,
+  ChevronDown, ChevronRight, Globe, X, Menu
 } from 'lucide-react';
 
 const Sidebar = ({ activeKPI, setActiveKPI, activeView, setActiveView }) => {
@@ -96,16 +96,28 @@ const Sidebar = ({ activeKPI, setActiveKPI, activeView, setActiveView }) => {
 
 const Header = ({ activeView, setActiveView }) => {
   const isOverview = activeView === 'overview';
+  const [darkMode, setDarkMode] = useState(true);
+
+  useEffect(() => {
+    if (darkMode) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [darkMode]);
+
   return (
     <header className="h-16 bg-white dark:bg-slate-900/50 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10 flex items-center justify-between px-8">
       {isOverview && (
-        <button
-          onClick={() => setActiveView('dashboard')}
-          className="mr-6 flex items-center space-x-2 bg-brand-accent hover:bg-cyan-500 text-brand-dark px-4 py-2 rounded-xl font-bold shadow-lg shadow-brand-accent/20 transition-all transform active:scale-95"
-        >
-          <X className="w-4 h-4" />
-          <span className="text-xs">DASHBOARD</span>
-        </button>
+        <div className="flex items-center mr-6">
+          <button
+            onMouseEnter={() => setActiveView('dashboard')}
+            onClick={() => setActiveView('dashboard')}
+            className="p-2 mr-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-xl transition group"
+          >
+            <Menu className="w-6 h-6 text-slate-500 group-hover:text-brand-accent" />
+          </button>
+        </div>
       )}
       <div className="flex items-center flex-1 max-w-xl">
         <div className="relative w-full group">
@@ -121,8 +133,11 @@ const Header = ({ activeView, setActiveView }) => {
       </div>
 
       <div className="flex items-center space-x-6">
-        <button className="p-2.5 text-slate-400 hover:text-brand-accent hover:bg-brand-accent/10 rounded-xl transition-all relative group">
-          <Sun className="w-5 h-5" />
+        <button
+          onClick={() => setDarkMode(!darkMode)}
+          className="p-2.5 text-slate-400 hover:text-brand-accent hover:bg-brand-accent/10 rounded-xl transition-all relative group"
+        >
+          {darkMode ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-slate-800 text-[10px] text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">Toggle Theme</span>
         </button>
 

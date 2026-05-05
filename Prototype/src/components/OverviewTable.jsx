@@ -1,36 +1,89 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Search, Filter, Download, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useData } from '../hooks/useData';
+import { db } from '../db/db';
 
 const OverviewTable = () => {
-  const { siteData } = useData();
   const [searchTerm, setSearchTerm] = useState('');
+  const [siteData, setSiteData] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  const sitesWithValues = useMemo(() => {
-    const base = siteData.length > 0 ? siteData : [];
-    return base.map(site => {
-      const siteName = site.site_name || site.SiteName || site.SITE_NAME;
-      // Real logic to find KPI values for this site would go here
-      // For now, if real data is available, we show it, otherwise mock
-      return {
-        ...site,
-        site_name: siteName,
-        site_code: site.site_code || site.SiteCode || 'N/A',
-        town: site.town || site.Town || 'N/A',
-        vendor: site.vendor || site.Vendor || 'N/A',
-        region: site.region || site.Region || 'N/A',
-        status: site.status || 'Normal',
-        cssr_days: Array.from({length: 7}, () => (98 + Math.random() * 2).toFixed(2)),
-        dcr_days: Array.from({length: 7}, () => (0.1 + Math.random() * 0.5).toFixed(2)),
+  useEffect(() => {
+      const fetchOverview = async () => {
+          setLoading(true);
+          try {
+              // We aggregate the latest 7 days of CSSR and DCR per site from the DB
+              const allKpis = await db.kpi_data.toArray();
+
+              const siteMap = {};
+
+              allKpis.forEach(r => {
+                  if (!siteMap[r.site_code]) {
+                      siteMap[r.site_code] = {
+                          site_name: r.site_name,
+                          site_code: r.site_code,
+                          town: r.town,
+                          vendor: r.vendor,
+                          region: r.region,
+                          kpi_entries: []
+                      };
+                  }
+                  siteMap[r.site_code].kpi_entries.push({
+                      date: r.date,
+                      timestamp: r.timestamp,
+                      cssr: r.cssr,
+                      dcr: r.dcr
+                  });
+              });
+
+              const aggregated = Object.values(siteMap).map(site => {
+                  // Sort descending by time
+                  site.kpi_entries.sort((a,b) => b.timestamp - a.timestamp);
+                  // take latest 7
+                  const latest7 = site.kpi_entries.slice(0, 7);
+
+                  // determine status based on very latest entry
+                  let status = 'Normal';
+                  if (latest7.length > 0) {
+                      const latest = latest7[0];
+                      if (latest.cssr < 95 || latest.dcr > 2) status = 'Degraded';
+                  }
+
+                  const cssr_days = latest7.map(k => k.cssr.toFixed(2));
+                  const dcr_days = latest7.map(k => k.dcr.toFixed(2));
+
+                  // pad to 7 if less
+                  while (cssr_days.length < 7) { cssr_days.push('-'); dcr_days.push('-'); }
+
+                  return {
+                      ...site,
+                      status,
+                      cssr_days,
+                      dcr_days
+                  };
+              });
+
+              setSiteData(aggregated);
+          } catch(err) {
+              console.error(err);
+          } finally {
+              setLoading(false);
+          }
       };
-    });
-  }, [siteData]);
 
-  const filteredSites = sitesWithValues.filter(site =>
-    (site.site_name && site.site_name.toString().toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (site.site_code && site.site_code.toString().toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (site.region && site.region.toString().toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+      fetchOverview();
+  }, []);
+
+  const filteredSites = useMemo(() => {
+      return siteData.filter(site =>
+        (site.site_name && site.site_name.toString().toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (site.site_code && site.site_code.toString().toLowerCase().includes(searchTerm.toLowerCase())) ||
+        (site.region && site.region.toString().toLowerCase().includes(searchTerm.toLowerCase()))
+      );
+  }, [siteData, searchTerm]);
+
+  if (loading) {
+      return <div className="p-8 text-center text-slate-500">Loading overview data from IndexedDB...</div>;
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
