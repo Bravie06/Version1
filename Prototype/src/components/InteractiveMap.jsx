@@ -1,13 +1,13 @@
 import React, { useEffect, useRef, useState, useMemo } from 'react';
 import $ from 'jquery';
 import { MapPin, AlertCircle, ChevronRight, X } from 'lucide-react';
-import { useData } from '../hooks/useData';
-import { SITES_DATA } from '../data/mockData';
+import sitesMacro from '../data/sites_macro.json';
+import { db } from '../db/db';
 
 const InteractiveMap = () => {
     const mapRef = useRef(null);
-    const { siteData } = useData();
     const [selectedRegion, setSelectedRegion] = useState(null);
+    const [dbSitesInRegion, setDbSitesInRegion] = useState([]);
 
     const regionsList = [
       'Far North',
@@ -46,8 +46,10 @@ const InteractiveMap = () => {
 
         const handleClick = function(e) {
              e.preventDefault();
+             // Map area indexes start from 0 for the void image, 1 for the first region, etc.
+             // Usually index 0 is first shape
              const index = $(this).index();
-             setSelectedRegion(regionsList[index - 1] || null);
+             setSelectedRegion(regionsList[index] || null);
         };
 
         $map.find('area').on('mouseover', handleMouseOver);
@@ -61,13 +63,65 @@ const InteractiveMap = () => {
         };
     }, []);
 
-    const sitesInRegion = useMemo(() => {
-        const base = siteData && siteData.length > 0 ? siteData : SITES_DATA;
-        return base.filter(s => {
-          const reg = s.region || s.Region || s.REGION || '';
-          return reg.toString().toLowerCase() === (selectedRegion ? selectedRegion.toLowerCase() : '');
-        });
-      }, [siteData, selectedRegion]);
+    useEffect(() => {
+        const fetchSitesFromDB = async () => {
+           if (!selectedRegion) {
+               setDbSitesInRegion([]);
+               return;
+           }
+
+           // Find sites for this region from sitesMacro JSON directly
+           // Also map with the DB to see if they are Degraded or Normal based on latest KPI
+           const sitesJSON = sitesMacro.filter(s => {
+               const reg = s.Region || '';
+               return reg.toLowerCase() === selectedRegion.toLowerCase();
+           });
+
+           // Fetch latest KPI for these sites to determine status (Mocking logic for status)
+           // If a site has DCR > 2% or CSSR < 95%, we consider it Degraded.
+           const uniqueSiteCodes = [...new Set(sitesJSON.map(s => s['Site code']))];
+           const statusMap = {};
+
+           try {
+               const allKpis = await db.kpi_data.where('region').equalsIgnoreCase(selectedRegion).toArray();
+               allKpis.forEach(kpi => {
+                   // only keep latest for simplistic degradation check
+                   if (!statusMap[kpi.site_code] || statusMap[kpi.site_code].timestamp < kpi.timestamp) {
+                       statusMap[kpi.site_code] = kpi;
+                   }
+               });
+           } catch(e) {
+               console.error(e);
+           }
+
+           const mappedSites = sitesJSON.map(s => {
+               const code = s['Site code'];
+               const latestKpi = statusMap[code];
+               let status = 'Normal';
+               if (latestKpi) {
+                   if (latestKpi.cssr < 95 || latestKpi.dcr > 2) {
+                       status = 'Degraded';
+                   }
+               } else {
+                   status = 'Unknown';
+               }
+
+               return {
+                   site_name: s['Site name'] || code,
+                   site_code: code,
+                   region: s.Region,
+                   town: s.Town,
+                   vendor: s.Vendor,
+                   typology: s.Typology,
+                   status: status
+               };
+           });
+
+           setDbSitesInRegion(mappedSites);
+        };
+
+        fetchSitesFromDB();
+    }, [selectedRegion]);
 
     return (
         <div className="flex flex-col xl:flex-row gap-8 h-full animate-in fade-in duration-700">
@@ -111,7 +165,7 @@ const InteractiveMap = () => {
                   <div className="p-6 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-800/30">
                     <div>
                       <h4 className="text-lg font-black text-slate-900 dark:text-white uppercase tracking-tight">{selectedRegion} Region</h4>
-                      <p className="text-xs text-brand-accent font-bold">{sitesInRegion.length} sites active</p>
+                      <p className="text-xs text-brand-accent font-bold">{dbSitesInRegion.length} sites active</p>
                     </div>
                     <button
                       onClick={() => setSelectedRegion(null)}
@@ -122,15 +176,18 @@ const InteractiveMap = () => {
                   </div>
 
                   <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar max-h-[400px]">
-                    {sitesInRegion.map((site, i) => (
+                    {dbSitesInRegion.map((site, i) => (
                       <div key={i} className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl border border-slate-200 dark:border-slate-700 group hover:border-brand-accent transition cursor-pointer">
                         <div className="flex justify-between items-start mb-2">
                           <span className={`px-2 py-0.5 rounded text-[10px] font-black
                             ${site.status === 'Normal' ? 'bg-green-500/10 text-green-500' :
-                              site.status === 'Degraded' ? 'bg-orange-500/10 text-orange-500' : 'bg-red-500/10 text-red-500'}`}>
+                              site.status === 'Degraded' ? 'bg-orange-500/10 text-orange-500' : 'bg-slate-500/10 text-slate-500'}`}>
                             {site.status.toUpperCase()}
                           </span>
-                          <ChevronRight className="w-4 h-4 text-slate-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all" />
+                          <span className="text-[10px] text-slate-400 bg-slate-100 dark:bg-slate-800 px-1 rounded ml-2">
+                              {site.typology}
+                          </span>
+                          <ChevronRight className="w-4 h-4 text-slate-600 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all ml-auto" />
                         </div>
                         <h5 className="font-bold text-slate-900 dark:text-white text-sm">{site.site_name}</h5>
                         <div className="flex items-center space-x-2 mt-1 text-[10px] text-slate-500 font-bold">
@@ -140,10 +197,10 @@ const InteractiveMap = () => {
                         </div>
                       </div>
                     ))}
-                    {sitesInRegion.length === 0 && (
+                    {dbSitesInRegion.length === 0 && (
                       <div className="p-12 text-center text-slate-500">
                         <AlertCircle className="w-12 h-12 mx-auto mb-4 opacity-10" />
-                        <p className="text-xs italic">No data for this region.</p>
+                        <p className="text-xs italic">No sites for this region found in database.</p>
                       </div>
                     )}
                   </div>

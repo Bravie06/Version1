@@ -1,57 +1,57 @@
-import { useState } from 'react';
-import { Upload, Shield, Database, Network, ArrowRight, CheckCircle2, User, Lock, Mail } from 'lucide-react';
-import * as XLSX from 'xlsx';
-import { useData } from '../hooks/useData';
+import { useState, useRef } from 'react';
+import { Upload, Shield, Database, Network, ArrowRight, CheckCircle2, User, Lock, Mail, Loader2 } from 'lucide-react';
+import { clearDatabase } from '../db/db';
 
 const LandingPage = ({ onContinue }) => {
-  const { setSiteData, setKpiData } = useData();
   const [isLogin, setIsLogin] = useState(true);
   const [uploadedFiles, setUploadedFiles] = useState({});
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [processingMsg, setProcessingMsg] = useState('');
   const [isAuth, setIsAuth] = useState(false);
 
   const filesToUpload = [
-    { id: 'macro', label: 'Sites MACRO' },
-    { id: 'cssr2g', label: 'CSSR 2G' },
-    { id: 'cssr3g', label: 'CSSR 3G' },
-    { id: 'cssr4g', label: 'CSSR 4G' },
-    { id: 'dcr2g', label: 'DCR 2G' },
-    { id: 'dcr3g', label: 'DCR 3G' },
-    { id: 'dcr4g', label: 'DCR 4G' },
-    { id: 'traffic', label: 'Traffic' },
+    { id: 'huawei_2g', label: 'HUAWEI 2G' },
+    { id: 'huawei_3g', label: 'HUAWEI 3G' },
+    { id: 'huawei_4g', label: 'HUAWEI 4G' },
+    { id: 'zte_2g', label: 'ZTE 2G' },
+    { id: 'zte_3g', label: 'ZTE 3G' },
+    { id: 'zte_4g', label: 'ZTE 4G' },
+    { id: 'nokia', label: 'NOKIA' },
   ];
 
-  const handleFileUpload = (e, id) => {
+  const handleFileUpload = async (e, id) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (evt) => {
-      const bstr = evt.target.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws);
+    setIsProcessing(true);
+    setProcessingMsg(`Processing ${file.name}...`);
 
-      if (id === 'macro') {
-        setSiteData(data);
-      } else {
-        setKpiData(prev => {
-          const newKpiData = { ...prev };
-          if (id.startsWith('cssr')) {
-            const tech = id.replace('cssr', '').toUpperCase();
-            newKpiData.cssr[tech] = data;
-          } else if (id.startsWith('dcr')) {
-            const tech = id.replace('dcr', '').toUpperCase();
-            newKpiData.dcr[tech] = data;
-          } else if (id === 'traffic') {
-            newKpiData.traffic = data;
-          }
-          return newKpiData;
-        });
-      }
-      setUploadedFiles(prev => ({ ...prev, [id]: true }));
-    };
-    reader.readAsBinaryString(file);
+    try {
+        const buffer = await file.arrayBuffer();
+
+        // Clear DB on first upload to start fresh (optional, but good for prototype)
+        if (Object.keys(uploadedFiles).length === 0) {
+           await clearDatabase();
+        }
+
+        const worker = new Worker(new URL('../workers/parser.worker.js', import.meta.url), { type: 'module' });
+
+        worker.onmessage = (event) => {
+            if (event.data.success) {
+                setUploadedFiles(prev => ({ ...prev, [id]: true }));
+            } else {
+                console.error("Worker error:", event.data.error);
+                alert(`Error processing ${file.name}`);
+            }
+            setIsProcessing(false);
+            worker.terminate();
+        };
+
+        worker.postMessage({ fileBuffer: buffer, fileId: id });
+    } catch (err) {
+        console.error(err);
+        setIsProcessing(false);
+    }
   };
 
   const handleAuth = (e) => {
@@ -182,21 +182,29 @@ const LandingPage = ({ onContinue }) => {
                 <p className="text-slate-400">Import your Excel files to start diagnosis</p>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+              <div className="grid grid-cols-2 gap-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar relative">
+                {isProcessing && (
+                  <div className="absolute inset-0 bg-slate-900/80 backdrop-blur-sm z-10 flex flex-col items-center justify-center rounded-xl border border-slate-700">
+                     <Loader2 className="w-10 h-10 text-brand-accent animate-spin mb-4" />
+                     <p className="text-sm font-bold text-white animate-pulse">{processingMsg}</p>
+                     <p className="text-xs text-slate-400 mt-2">Parsing Excel & Saving to IndexedDB...</p>
+                  </div>
+                )}
                 {filesToUpload.map((file) => (
                   <label
                     key={file.id}
-                    className={`p-4 rounded-2xl border transition flex flex-col items-center justify-center space-y-2 group cursor-pointer
+                    className={`p-4 rounded-2xl border transition flex flex-col items-center justify-center space-y-2 group
                       ${uploadedFiles[file.id]
-                        ? 'bg-green-500/10 border-green-500 text-green-500'
-                        : 'bg-slate-800/50 border-slate-700 hover:border-brand-accent text-slate-400 hover:text-white'
+                        ? 'bg-green-500/10 border-green-500 text-green-500 cursor-default'
+                        : 'bg-slate-800/50 border-slate-700 hover:border-brand-accent text-slate-400 hover:text-white cursor-pointer'
                       }`}
                   >
                     <input
                       type="file"
-                      accept=".xlsx, .xls, .csv"
+                      accept=".xlsx, .xls"
                       className="hidden"
                       onChange={(e) => handleFileUpload(e, file.id)}
+                      disabled={uploadedFiles[file.id] || isProcessing}
                     />
                     {uploadedFiles[file.id] ? (
                       <CheckCircle2 className="w-8 h-8" />
@@ -210,10 +218,11 @@ const LandingPage = ({ onContinue }) => {
 
               <button
                 onClick={onContinue}
+                disabled={!allFilesUploaded}
                 className={`w-full flex items-center justify-center space-x-2 py-4 rounded-xl font-bold transition
                   ${allFilesUploaded
-                    ? 'bg-brand-accent hover:bg-cyan-500 text-brand-dark'
-                    : 'bg-slate-800 text-slate-500'
+                    ? 'bg-brand-accent hover:bg-cyan-500 text-brand-dark cursor-pointer'
+                    : 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-50'
                   }`}
               >
                 <span>Go to Dashboard</span>
