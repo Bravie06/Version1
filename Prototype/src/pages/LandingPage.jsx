@@ -2,54 +2,181 @@ import { useState } from 'react';
 import { Upload, Shield, Database, Network, ArrowRight, CheckCircle2, User, Lock, Mail } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useData } from '../hooks/useData';
+import { db } from '../data/db';
+import { extractSiteCode } from '../utils/siteUtils';
 
 const LandingPage = ({ onContinue }) => {
   const { setSiteData, setKpiData } = useData();
   const [isLogin, setIsLogin] = useState(true);
   const [uploadedFiles, setUploadedFiles] = useState({});
   const [isAuth, setIsAuth] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
 
   const filesToUpload = [
     { id: 'macro', label: 'Sites MACRO' },
-    { id: 'cssr2g', label: 'CSSR 2G' },
-    { id: 'cssr3g', label: 'CSSR 3G' },
-    { id: 'cssr4g', label: 'CSSR 4G' },
-    { id: 'dcr2g', label: 'DCR 2G' },
-    { id: 'dcr3g', label: 'DCR 3G' },
-    { id: 'dcr4g', label: 'DCR 4G' },
-    { id: 'traffic', label: 'Traffic' },
+    { id: 'huawei_2g', label: 'HUAWEI 2G' },
+    { id: 'huawei_3g', label: 'HUAWEI 3G' },
+    { id: 'huawei_4g', label: 'HUAWEI 4G' },
+    { id: 'zte_2g', label: 'ZTE 2G' },
+    { id: 'zte_3g', label: 'ZTE 3G' },
+    { id: 'zte_4g', label: 'ZTE 4G' },
+    { id: 'nokia', label: 'NOKIA (2G/3G/4G)' },
   ];
 
   const handleFileUpload = (e, id) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    setIsProcessing(true);
     const reader = new FileReader();
-    reader.onload = (evt) => {
-      const bstr = evt.target.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws);
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
 
-      if (id === 'macro') {
-        setSiteData(data);
-      } else {
-        setKpiData(prev => {
-          const newKpiData = { ...prev };
-          if (id.startsWith('cssr')) {
-            const tech = id.replace('cssr', '').toUpperCase();
-            newKpiData.cssr[tech] = data;
-          } else if (id.startsWith('dcr')) {
-            const tech = id.replace('dcr', '').toUpperCase();
-            newKpiData.dcr[tech] = data;
-          } else if (id === 'traffic') {
-            newKpiData.traffic = data;
+        if (id === 'macro') {
+          const wsname = wb.SheetNames[0];
+          const ws = wb.Sheets[wsname];
+          const data = XLSX.utils.sheet_to_json(ws);
+
+          const formattedSites = data.map(item => ({
+            site_code: item.site_code || item['Site Code'] || extractSiteCode(item.site_name || item['Site Name']),
+            site_name: item.site_name || item['Site Name'],
+            vendor: item.vendor || item['Vendor'],
+            region: item.region || item['Region'],
+            town: item.town || item['Town'] || item['City'],
+            typology: item.typology || item['Typology']
+          }));
+
+          await db.sites.clear();
+          await db.sites.bulkAdd(formattedSites);
+          setSiteData(formattedSites);
+        } else if (id.startsWith('huawei')) {
+          const wsname = wb.SheetNames[0];
+          const ws = wb.Sheets[wsname];
+          const data = XLSX.utils.sheet_to_json(ws);
+          const tech = id.split('_')[1].toUpperCase();
+
+          const kpiRecords = data.map(item => {
+            let cssr = 0, dcr = 0, siteName = "", date = "";
+
+            if (tech === '4G') {
+              cssr = item['4G_Grp_4G/LTE CALL SETUP SUCCESS RATE (WITHOUT VOLTE)(%)'];
+              dcr = item['4G_Grp_4G/LTE DROP CALL RATE (WITHOUT VOLTE)(%)'];
+              siteName = item['eNodeB Name'];
+              date = item['Date'];
+            } else if (tech === '3G') {
+              cssr = item['GRP_3G Call Setup Success Rate (CS)(%)'];
+              dcr = item['Grp_3G Drop Call Rate (CS)%_Update'];
+              siteName = item['NODEBNAME'];
+              date = item['Date'];
+            } else if (tech === '2G') {
+              cssr = item['FT_Call Setup Success Rate-Speech'];
+              dcr = item['FT_Drop Call Rate-Speech'];
+              siteName = item['Site Name'];
+              date = item['Date'];
+            }
+
+            return {
+              date,
+              site_code: extractSiteCode(siteName),
+              tech,
+              vendor: 'HUAWEI',
+              cssr: parseFloat(cssr) || 0,
+              dcr: parseFloat(dcr) || 0,
+              traffic_voice: 0,
+              traffic_data: 0
+            };
+          });
+
+          await db.kpis.bulkPut(kpiRecords);
+        } else if (id.startsWith('zte')) {
+          const wsname = "Sheet0";
+          const ws = wb.Sheets[wsname] || wb.Sheets[wb.SheetNames[0]];
+          const data = XLSX.utils.sheet_to_json(ws);
+          const tech = id.split('_')[1].toUpperCase();
+
+          const kpiRecords = data.map(item => {
+            let cssr = 0, dcr = 0, siteName = "", date = "";
+
+            if (tech === '4G') {
+              cssr = item['ORA_4G_CALL_SETUP_SUCCESS_RATE_New(%)'];
+              dcr = item['ORA_4G_LTE_Drop_Call_Rate_WO_VoLTE_New(%)'];
+              siteName = item['ENBFunction Name'];
+              date = item['Begin Time'];
+            } else if (tech === '3G') {
+              cssr = item['ORA_3G_CSSR CS with Cell PCH/URA PCH (%)'];
+              dcr = item['ORA_3G_Drop Call Rate CS(%)'];
+              siteName = item['NodeB Name'];
+              date = item['Begin Time'];
+            } else if (tech === '2G') {
+              cssr = item['ORA_2G_CSSR_CS_New(%)'];
+              dcr = item['ORA_2G_Call_Drop_CS_New(%)'];
+              siteName = item['SITE Name'];
+              date = item['Begin Time'];
+            }
+
+            return {
+              date,
+              site_code: extractSiteCode(siteName),
+              tech,
+              vendor: 'ZTE',
+              cssr: parseFloat(cssr) || 0,
+              dcr: parseFloat(dcr) || 0,
+              traffic_voice: 0,
+              traffic_data: 0
+            };
+          });
+
+          await db.kpis.bulkPut(kpiRecords);
+        } else if (id === 'nokia') {
+          const techs = ['2G', '3G', '4G'];
+          for (const tech of techs) {
+            const ws = wb.Sheets[tech];
+            if (!ws) continue;
+
+            const data = XLSX.utils.sheet_to_json(ws);
+            const kpiRecords = data.map(item => {
+              let cssr = 0, dcr = 0, siteName = "", date = "";
+
+              if (tech === '4G') {
+                cssr = item['LTE_CALL_SETUP_SUCCESS_RATE_NEW_PERC'];
+                dcr = item['DRC SRAN'];
+                siteName = item['LNBTS name'];
+                date = item['Period start time'];
+              } else if (tech === '3G') {
+                cssr = item['ORA_CSSR_CS_CellPCH_URAPCHnew'];
+                dcr = item['grp_3G_Drop_Call_CS'];
+                siteName = item['WBTS name'];
+                date = item['Period start time'];
+              } else if (tech === '2G') {
+                cssr = item['ORA_2G_CSSR_CS_new'];
+                dcr = item['ORA_2G_Call_Drop_CS_new'];
+                siteName = item['BCF name'];
+                date = item['Period start time'];
+              }
+
+              return {
+                date,
+                site_code: extractSiteCode(siteName),
+                tech,
+                vendor: 'NOKIA',
+                cssr: parseFloat(cssr) || 0,
+                dcr: parseFloat(dcr) || 0,
+                traffic_voice: 0,
+                traffic_data: 0
+              };
+            });
+            await db.kpis.bulkPut(kpiRecords);
           }
-          return newKpiData;
-        });
+        }
+        setUploadedFiles(prev => ({ ...prev, [id]: true }));
+      } catch (error) {
+        console.error("Error processing file:", error);
+        alert("Error processing file. Check console for details.");
+      } finally {
+        setIsProcessing(false);
       }
-      setUploadedFiles(prev => ({ ...prev, [id]: true }));
     };
     reader.readAsBinaryString(file);
   };
@@ -210,14 +337,15 @@ const LandingPage = ({ onContinue }) => {
 
               <button
                 onClick={onContinue}
+                disabled={isProcessing}
                 className={`w-full flex items-center justify-center space-x-2 py-4 rounded-xl font-bold transition
-                  ${allFilesUploaded
+                  ${allFilesUploaded && !isProcessing
                     ? 'bg-brand-accent hover:bg-cyan-500 text-brand-dark'
-                    : 'bg-slate-800 text-slate-500'
+                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                   }`}
               >
-                <span>Go to Dashboard</span>
-                <ArrowRight className="w-5 h-5" />
+                <span>{isProcessing ? 'Processing...' : 'Go to Dashboard'}</span>
+                {!isProcessing && <ArrowRight className="w-5 h-5" />}
               </button>
             </div>
           )}

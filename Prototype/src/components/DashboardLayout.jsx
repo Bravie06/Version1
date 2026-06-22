@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Network, BarChart3, ShieldAlert,
-  FileText, Settings, Search, Sun,
+  FileText, Settings, Search, Sun, Moon,
   ChevronDown, ChevronRight, Globe, X
 } from 'lucide-react';
 
@@ -26,6 +26,21 @@ const Sidebar = ({ activeKPI, setActiveKPI, activeView, setActiveView }) => {
       </div>
 
       <div className="flex-1 overflow-y-auto py-4 px-4 space-y-2 custom-scrollbar">
+        <button
+          onClick={() => {
+            setActiveKPI(null);
+            setActiveView('dashboard');
+          }}
+          className={`w-full flex items-center space-x-3 p-3 rounded-xl transition group
+            ${!activeKPI && activeView === 'dashboard'
+              ? 'bg-slate-800 text-white shadow-lg shadow-black/20'
+              : 'hover:bg-slate-800 hover:text-white'
+            }`}
+        >
+          <Network className={`w-5 h-5 ${!activeKPI && activeView === 'dashboard' ? 'text-brand-accent' : 'group-hover:text-brand-accent'}`} />
+          <span className="font-medium">Dashboard</span>
+        </button>
+
         {/* KPI Menu */}
         <div>
           <button
@@ -96,6 +111,16 @@ const Sidebar = ({ activeKPI, setActiveKPI, activeView, setActiveView }) => {
 
 const Header = ({ activeView, setActiveView }) => {
   const isOverview = activeView === 'overview';
+  const [isDark, setIsDark] = useState(true);
+
+  useEffect(() => {
+    if (isDark) {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+  }, [isDark]);
+
   return (
     <header className="h-16 bg-white dark:bg-slate-900/50 backdrop-blur-md border-b border-slate-200 dark:border-slate-800 sticky top-0 z-10 flex items-center justify-between px-8">
       {isOverview && (
@@ -121,8 +146,11 @@ const Header = ({ activeView, setActiveView }) => {
       </div>
 
       <div className="flex items-center space-x-6">
-        <button className="p-2.5 text-slate-400 hover:text-brand-accent hover:bg-brand-accent/10 rounded-xl transition-all relative group">
-          <Sun className="w-5 h-5" />
+        <button
+          onClick={() => setIsDark(!isDark)}
+          className="p-2.5 text-slate-400 hover:text-brand-accent hover:bg-brand-accent/10 rounded-xl transition-all relative group"
+        >
+          {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
           <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 bg-slate-800 text-[10px] text-white rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap pointer-events-none">Toggle Theme</span>
         </button>
 

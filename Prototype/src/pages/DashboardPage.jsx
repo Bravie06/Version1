@@ -1,9 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import DashboardLayout from '../components/DashboardLayout';
 import OverviewTable from '../components/OverviewTable';
 import InteractiveMap from '../components/InteractiveMap';
 import {
-  LineChart, Line, ResponsiveContainer
+  LineChart, Line, ResponsiveContainer, XAxis, YAxis, Tooltip, CartesianGrid
 } from 'recharts';
 import {
   Activity, Clock, Filter, Globe
@@ -11,22 +11,50 @@ import {
 import { generateKPIData } from '../data/mockData';
 import { useData } from '../hooks/useData';
 
-const MiniCurve = ({ kpi, color = "#06b6d4", tech }) => {
-  const { kpiData } = useData();
-  const isTraffic = kpi.startsWith('TRAFFIC');
-  const dataKey = isTraffic ? (kpi === 'TRAFFIC DATA' ? 'data' : 'voice') : 'value';
+const CustomTooltip = ({ active, payload, label, unit = '%' }) => {
+  if (active && payload && payload.length) {
+    return (
+      <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-2xl backdrop-blur-md">
+        <p className="text-[10px] font-bold text-slate-400 mb-1">{label}</p>
+        {payload.map((entry, index) => (
+          <div key={index} className="flex items-center space-x-2">
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: entry.color }}></div>
+            <p className="text-xs font-black text-white">
+              {entry.name}: <span className="text-brand-accent">{entry.value}{unit}</span>
+            </p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return null;
+};
 
-  const data = useMemo(() => {
-    if (isTraffic && kpiData.traffic.length > 0) {
-      return kpiData.traffic.slice(0, 7).map((d, i) => ({ name: i, data: d.value || d.Data || 0, voice: d.Voice || 0 }));
-    }
-    const techKey = tech || '4G';
-    const typeKey = kpi.toLowerCase();
-    if (kpiData[typeKey] && kpiData[typeKey][techKey] && kpiData[typeKey][techKey].length > 0) {
-      return kpiData[typeKey][techKey].slice(0, 7).map((d, i) => ({ name: i, value: d.value || d.Value || 0 }));
-    }
-    return generateKPIData(kpi);
-  }, [kpi, kpiData, isTraffic, tech]);
+const MiniCurve = ({ kpi, color = "#06b6d4", tech, vendor }) => {
+  const { getKpiData } = useData();
+  const [data, setData] = useState([]);
+  const isTraffic = kpi.startsWith('TRAFFIC');
+  const dataKey = isTraffic ? (kpi === 'TRAFFIC DATA' ? 'traffic_data' : 'traffic_voice') : kpi.toLowerCase();
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const records = await getKpiData({ vendor, tech });
+      if (records && records.length > 0) {
+        // Sort by date and take last 7
+        const sorted = records.sort((a, b) => new Date(a.date) - new Date(b.date)).slice(-7);
+        setData(sorted.map(r => ({
+          name: r.date,
+          cssr: r.cssr,
+          dcr: r.dcr,
+          traffic_data: r.traffic_data,
+          traffic_voice: r.traffic_voice
+        })));
+      } else {
+        setData(generateKPIData(kpi));
+      }
+    };
+    fetchData();
+  }, [kpi, tech, vendor, getKpiData]);
 
   const displayValue = useMemo(() => {
     if (data.length > 0) {
@@ -36,26 +64,29 @@ const MiniCurve = ({ kpi, color = "#06b6d4", tech }) => {
         return isTraffic ? val.toFixed(0) : val.toFixed(2) + '%';
       }
     }
-    return isTraffic ? '842' : '98.5%';
+    return isTraffic ? '0' : '0%';
   }, [data, dataKey, isTraffic]);
 
   return (
-    <div className="bg-white dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm h-40">
+    <div className="bg-white dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm h-48">
       <div className="flex justify-between items-start mb-2">
         <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{kpi}</p>
         <span className="text-xs font-bold text-brand-accent">
           {displayValue}
         </span>
       </div>
-      <div className="h-24 w-full">
+      <div className="h-32 w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
+            <Tooltip content={<CustomTooltip unit={isTraffic ? '' : '%'} />} />
             <Line
               type="monotone"
               dataKey={dataKey}
+              name={kpi}
               stroke={color}
               strokeWidth={3}
-              dot={false}
+              dot={{ r: 4, fill: color, strokeWidth: 0 }}
+              activeDot={{ r: 6, strokeWidth: 0 }}
               animationDuration={1000}
             />
           </LineChart>
@@ -65,21 +96,88 @@ const MiniCurve = ({ kpi, color = "#06b6d4", tech }) => {
   );
 };
 
-const KPIContent = ({ tech }) => {
+const DetailedChart = ({ kpi, tech, vendor }) => {
+  const { getKpiData } = useData();
+  const [data, setData] = useState([]);
+  const isTraffic = kpi === 'TRAFFIC';
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const records = await getKpiData({ vendor, tech });
+      if (records && records.length > 0) {
+        const sorted = records.sort((a, b) => new Date(a.date) - new Date(b.date)).slice(-15);
+        setData(sorted.map(r => ({
+          name: r.date,
+          cssr: r.cssr,
+          dcr: r.dcr,
+          traffic_data: r.traffic_data,
+          traffic_voice: r.traffic_voice
+        })));
+      } else {
+        setData(generateKPIData(kpi));
+      }
+    };
+    fetchData();
+  }, [kpi, tech, vendor, getKpiData]);
+
   return (
-    <div className="animate-in fade-in duration-500">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MiniCurve kpi="CSSR" tech={tech} />
-        <MiniCurve kpi="DCR" color="#ef4444" tech={tech} />
-        <MiniCurve kpi="TRAFFIC DATA" color="#10b981" tech={tech} />
-        <MiniCurve kpi="TRAFFIC VOICE" color="#3b82f6" tech={tech} />
+    <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm h-[400px]">
+      <div className="flex justify-between items-center mb-6">
+        <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">
+          Detailed {kpi} Analysis
+        </h3>
+        <div className="flex space-x-4">
+          {isTraffic ? (
+            <>
+              <div className="flex items-center space-x-2"><div className="w-3 h-3 rounded-full bg-[#10b981]"></div><span className="text-xs font-bold text-slate-500">Data</span></div>
+              <div className="flex items-center space-x-2"><div className="w-3 h-3 rounded-full bg-[#3b82f6]"></div><span className="text-xs font-bold text-slate-500">Voice</span></div>
+            </>
+          ) : (
+            <div className="flex items-center space-x-2"><div className="w-3 h-3 rounded-full bg-brand-accent"></div><span className="text-xs font-bold text-slate-500">{kpi} %</span></div>
+          )}
+        </div>
+      </div>
+      <div className="h-[300px] w-full">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" opacity={0.1} />
+            <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} />
+            <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 10, fill: '#64748b' }} domain={[0, 'auto']} />
+            <Tooltip content={<CustomTooltip unit={isTraffic ? '' : '%'} />} />
+            {isTraffic ? (
+              <>
+                <Line type="monotone" dataKey="traffic_data" name="Traffic Data" stroke="#10b981" strokeWidth={4} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                <Line type="monotone" dataKey="traffic_voice" name="Traffic Voice" stroke="#3b82f6" strokeWidth={4} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+              </>
+            ) : (
+              <Line type="monotone" dataKey={kpi.toLowerCase()} name={kpi} stroke="#06b6d4" strokeWidth={4} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+            )}
+          </LineChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
 };
 
+const KPIContent = ({ tech, vendor, activeKPI }) => {
+  return (
+    <div className="animate-in fade-in duration-500">
+      {activeKPI ? (
+        <DetailedChart kpi={activeKPI} tech={tech} vendor={vendor} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <MiniCurve kpi="CSSR" tech={tech} vendor={vendor} />
+          <MiniCurve kpi="DCR" color="#ef4444" tech={tech} vendor={vendor} />
+          <MiniCurve kpi="TRAFFIC DATA" color="#10b981" tech={tech} vendor={vendor} />
+          <MiniCurve kpi="TRAFFIC VOICE" color="#3b82f6" tech={tech} vendor={vendor} />
+        </div>
+      )}
+    </div>
+  );
+};
+
 const DashboardPage = () => {
-  const [activeKPI, setActiveKPI] = useState('CSSR');
+  const [activeKPI, setActiveKPI] = useState(null);
   const [activeView, setActiveView] = useState('dashboard');
   const [vendor, setVendor] = useState('NOKIA');
   const [tech, setTech] = useState('2G');
@@ -113,7 +211,7 @@ const DashboardPage = () => {
               </h1>
               <p className="text-slate-500 mt-2 font-medium flex items-center justify-center">
                 <Clock className="w-4 h-4 mr-2" />
-                Real-time performance monitoring for {activeKPI}
+                Real-time performance monitoring for {activeKPI || 'All KPIs'}
               </p>
             </div>
 
@@ -134,7 +232,7 @@ const DashboardPage = () => {
             </div>
           </div>
 
-          <KPIContent tech={tech} />
+          <KPIContent tech={tech} vendor={vendor} activeKPI={activeKPI} />
 
           <div className="flex justify-between items-center py-4">
             <div className="flex items-center space-x-2 bg-white dark:bg-slate-900/50 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
