@@ -1,78 +1,65 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import DashboardLayout from '../components/DashboardLayout';
 import OverviewTable from '../components/OverviewTable';
 import InteractiveMap from '../components/InteractiveMap';
 import {
-  LineChart, Line, ResponsiveContainer
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend
 } from 'recharts';
 import {
-  Activity, Clock, Filter, Globe
+  Activity, Clock, Filter, Globe, Calendar, MapPin
 } from 'lucide-react';
-import { generateKPIData } from '../data/mockData';
-import { useData } from '../hooks/useData';
+import { db } from '../db/database';
+import { aggregateKPIs, filterByTimeRange } from '../utils/kpiHelper';
+import Dexie from 'dexie';
 
-const MiniCurve = ({ kpi, color = "#06b6d4", tech }) => {
-  const { kpiData } = useData();
-  const isTraffic = kpi.startsWith('TRAFFIC');
-  const dataKey = isTraffic ? (kpi === 'TRAFFIC DATA' ? 'data' : 'voice') : 'value';
-
-  const data = useMemo(() => {
-    if (isTraffic && kpiData.traffic.length > 0) {
-      return kpiData.traffic.slice(0, 7).map((d, i) => ({ name: i, data: d.value || d.Data || 0, voice: d.Voice || 0 }));
-    }
-    const techKey = tech || '4G';
-    const typeKey = kpi.toLowerCase();
-    if (kpiData[typeKey] && kpiData[typeKey][techKey] && kpiData[typeKey][techKey].length > 0) {
-      return kpiData[typeKey][techKey].slice(0, 7).map((d, i) => ({ name: i, value: d.value || d.Value || 0 }));
-    }
-    return generateKPIData(kpi);
-  }, [kpi, kpiData, isTraffic, tech]);
-
-  const displayValue = useMemo(() => {
-    if (data.length > 0) {
-      const last = data[data.length - 1];
-      const val = last[dataKey];
-      if (typeof val === 'number') {
-        return isTraffic ? val.toFixed(0) : val.toFixed(2) + '%';
-      }
-    }
-    return isTraffic ? '842' : '98.5%';
-  }, [data, dataKey, isTraffic]);
-
+const MainChart = ({ data, kpi, title, color = "#06b6d4", secondaryKey = null, secondaryColor = "#ef4444" }) => {
   return (
-    <div className="bg-white dark:bg-slate-900/50 p-4 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm h-40">
-      <div className="flex justify-between items-start mb-2">
-        <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{kpi}</p>
-        <span className="text-xs font-bold text-brand-accent">
-          {displayValue}
-        </span>
+    <div className="bg-white dark:bg-slate-900/50 p-6 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm h-[400px]">
+      <div className="flex justify-between items-start mb-6">
+        <div>
+           <p className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{kpi}</p>
+           <h3 className="text-xl font-bold dark:text-white">{title}</h3>
+        </div>
       </div>
-      <div className="h-24 w-full">
+      <div className="h-[300px] w-full">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" vertical={false} />
+            <XAxis
+              dataKey="date"
+              stroke="#64748b"
+              fontSize={10}
+              tickFormatter={(val) => val ? val.split('-').slice(1).join('/') : ''}
+            />
+            <YAxis stroke="#64748b" fontSize={10} />
+            <Tooltip
+              contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px' }}
+              itemStyle={{ fontSize: '12px', fontWeight: 'bold' }}
+            />
+            <Legend />
             <Line
+              name={kpi}
               type="monotone"
-              dataKey={dataKey}
+              dataKey={kpi.toLowerCase().replace(' ', '')}
               stroke={color}
               strokeWidth={3}
-              dot={false}
+              dot={{ r: 4, fill: color }}
+              activeDot={{ r: 6 }}
               animationDuration={1000}
             />
+            {secondaryKey && (
+              <Line
+                name={secondaryKey.toUpperCase()}
+                type="monotone"
+                dataKey={secondaryKey}
+                stroke={secondaryColor}
+                strokeWidth={3}
+                dot={{ r: 4, fill: secondaryColor }}
+                activeDot={{ r: 6 }}
+              />
+            )}
           </LineChart>
         </ResponsiveContainer>
-      </div>
-    </div>
-  );
-};
-
-const KPIContent = ({ tech }) => {
-  return (
-    <div className="animate-in fade-in duration-500">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        <MiniCurve kpi="CSSR" tech={tech} />
-        <MiniCurve kpi="DCR" color="#ef4444" tech={tech} />
-        <MiniCurve kpi="TRAFFIC DATA" color="#10b981" tech={tech} />
-        <MiniCurve kpi="TRAFFIC VOICE" color="#3b82f6" tech={tech} />
       </div>
     </div>
   );
@@ -81,8 +68,87 @@ const KPIContent = ({ tech }) => {
 const DashboardPage = () => {
   const [activeKPI, setActiveKPI] = useState('CSSR');
   const [activeView, setActiveView] = useState('dashboard');
-  const [vendor, setVendor] = useState('NOKIA');
-  const [tech, setTech] = useState('2G');
+  const [vendor, setVendor] = useState('HUAWEI');
+  const [tech, setTech] = useState('4G');
+  const [region, setRegion] = useState('All Cameroon');
+  const [timeRange, setTimeRange] = useState('7D');
+  const [rawKpis, setRawKpis] = useState([]);
+  const [loading, setLoading] = useState(false);
+
+  const regionsList = [
+    'All Cameroon',
+    'Adamaoua',
+    'Centre',
+    'Est',
+    'Extrême-Nord',
+    'Littoral',
+    'Nord',
+    'Nord-Ouest',
+    'Ouest',
+    'Sud',
+    'Sud-Ouest'
+  ];
+
+  useEffect(() => {
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        let query = db.kpis
+          .where('[vendor+tech+date]')
+          .between([vendor, tech, Dexie.minKey], [vendor, tech, Dexie.maxKey]);
+
+        let data = await query.toArray();
+
+        // If region is selected, we need to filter by site_code mapping
+        if (region !== 'All Cameroon') {
+          // This is a bit expensive if we have many sites,
+          // but for IndexedDB without a region index in kpis it's the simplest way for now.
+          const { sitesMacro } = (await import('../data/sites_macro.json'));
+          const regionalSiteCodes = new Set(
+            sitesMacro
+              .filter(s => s.region.toLowerCase() === region.toLowerCase())
+              .map(s => s.site_code)
+          );
+          data = data.filter(k => regionalSiteCodes.has(k.site_code));
+        }
+
+        setRawKpis(data);
+      } catch (e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
+  }, [vendor, tech, region]);
+
+  const chartData = useMemo(() => {
+    const aggregated = aggregateKPIs(rawKpis);
+    return filterByTimeRange(aggregated, timeRange);
+  }, [rawKpis, timeRange]);
+
+  const renderKPIView = () => {
+    if (activeKPI === 'TRAFFIC') {
+      return (
+        <MainChart
+          data={chartData}
+          kpi="TRAFFIC VOICE"
+          title={`Traffic Performance - ${vendor} ${tech} (${region})`}
+          secondaryKey="trafficData"
+          secondaryColor="#10b981"
+          color="#3b82f6"
+        />
+      );
+    }
+    return (
+      <MainChart
+        data={chartData}
+        kpi={activeKPI}
+        title={`${activeKPI} Trend - ${vendor} ${tech} (${region})`}
+        color={activeKPI === 'DCR' ? '#ef4444' : '#06b6d4'}
+      />
+    );
+  };
 
   const renderContent = () => {
     if (activeView === 'overview') {
@@ -95,7 +161,7 @@ const DashboardPage = () => {
              </div>
              <div className="flex items-center space-x-2 text-xs font-bold text-slate-400 bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-xl">
                <Globe className="w-4 h-4 text-brand-accent" />
-               <span>Last updated: 5 mins ago</span>
+               <span>Live Data Active</span>
              </div>
            </div>
            <OverviewTable />
@@ -103,40 +169,40 @@ const DashboardPage = () => {
       );
     }
 
-    if (activeView === 'dashboard' || activeView === 'map') {
-      return (
-        <div className="space-y-6">
-          <div className="text-center space-y-6">
-            <div>
-              <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight uppercase">
-                AUTODIAGNOSE QOS <span className="text-brand-accent">{vendor}</span>
-              </h1>
-              <p className="text-slate-500 mt-2 font-medium flex items-center justify-center">
-                <Clock className="w-4 h-4 mr-2" />
-                Real-time performance monitoring for {activeKPI}
-              </p>
-            </div>
-
-            <div className="flex justify-center items-center gap-8">
-              {['NOKIA', 'HUAWEI', 'ZTE'].map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setVendor(v)}
-                  className={`px-8 py-3 rounded-2xl text-sm font-black transition-all transform hover:scale-105
-                    ${vendor === v
-                      ? 'bg-brand-accent text-brand-dark shadow-xl shadow-brand-accent/20'
-                      : 'bg-slate-200 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
+    return (
+      <div className="space-y-6">
+        <div className="text-center space-y-6">
+          <div>
+            <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tight uppercase">
+              AUTODIAGNOSE QOS <span className="text-brand-accent">{vendor}</span>
+            </h1>
+            <p className="text-slate-500 mt-2 font-medium flex items-center justify-center">
+              <Clock className="w-4 h-4 mr-2" />
+              Performance analysis for {activeKPI}
+            </p>
           </div>
 
-          <KPIContent tech={tech} />
+          <div className="flex justify-center items-center gap-4 md:gap-8 overflow-x-auto pb-2">
+            {['NOKIA', 'HUAWEI', 'ZTE'].map((v) => (
+              <button
+                key={v}
+                onClick={() => setVendor(v)}
+                className={`px-8 py-3 rounded-2xl text-sm font-black transition-all transform hover:scale-105 whitespace-nowrap
+                  ${vendor === v
+                    ? 'bg-brand-accent text-brand-dark shadow-xl shadow-brand-accent/20'
+                    : 'bg-slate-200 dark:bg-slate-800 text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        </div>
 
-          <div className="flex justify-between items-center py-4">
+        {renderKPIView()}
+
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4 py-4">
+          <div className="flex items-center space-x-4 flex-wrap gap-y-4">
             <div className="flex items-center space-x-2 bg-white dark:bg-slate-900/50 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
               <Filter className="w-4 h-4 text-slate-400 ml-2" />
               <select
@@ -150,24 +216,41 @@ const DashboardPage = () => {
               </select>
             </div>
 
-            <div className="flex items-center space-x-2 text-xs font-bold text-slate-400">
-               <Activity className="w-4 h-4 text-brand-accent" />
-               <span>Live Data Stream Active</span>
+            <div className="flex items-center space-x-2 bg-white dark:bg-slate-900/50 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <MapPin className="w-4 h-4 text-slate-400 ml-2" />
+              <select
+                value={region}
+                onChange={(e) => setRegion(e.target.value)}
+                className="bg-transparent border-none text-sm font-bold focus:ring-0 text-slate-700 dark:text-slate-300 pr-8"
+              >
+                {regionsList.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+
+            <div className="flex items-center space-x-2 bg-white dark:bg-slate-900/50 p-2 rounded-2xl border border-slate-200 dark:border-slate-800 shadow-sm">
+              <Calendar className="w-4 h-4 text-slate-400 ml-2" />
+              <select
+                value={timeRange}
+                onChange={(e) => setTimeRange(e.target.value)}
+                className="bg-transparent border-none text-sm font-bold focus:ring-0 text-slate-700 dark:text-slate-300 pr-8"
+              >
+                <option value="1D">1 Day</option>
+                <option value="7D">7 Days</option>
+                <option value="14D">14 Days</option>
+                <option value="1M">1 Month</option>
+              </select>
             </div>
           </div>
 
-          <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
-            <InteractiveMap />
+          <div className="flex items-center space-x-2 text-xs font-bold text-slate-400">
+             <Activity className="w-4 h-4 text-brand-accent" />
+             <span>{loading ? 'Refreshing...' : 'Data Sync Complete'}</span>
           </div>
         </div>
-      );
-    }
 
-    return (
-      <div className="flex flex-col items-center justify-center h-[60vh] text-slate-500">
-        <Activity className="w-16 h-16 mb-4 opacity-20" />
-        <h3 className="text-xl font-bold">{activeView.charAt(0).toUpperCase() + activeView.slice(1)}</h3>
-        <p>This module is currently being optimized.</p>
+        <div className="bg-white dark:bg-slate-900/50 rounded-3xl border border-slate-200 dark:border-slate-800 p-8 shadow-sm">
+          <InteractiveMap />
+        </div>
       </div>
     );
   };

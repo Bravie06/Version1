@@ -1,55 +1,61 @@
 import { useState } from 'react';
 import { Upload, Shield, Database, Network, ArrowRight, CheckCircle2, User, Lock, Mail } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { useData } from '../hooks/useData';
+import { parseVendorData } from '../utils/dataParser';
+import { saveKPIs, clearDatabase } from '../db/database';
 
 const LandingPage = ({ onContinue }) => {
-  const { setSiteData, setKpiData } = useData();
   const [isLogin, setIsLogin] = useState(true);
   const [uploadedFiles, setUploadedFiles] = useState({});
   const [isAuth, setIsAuth] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const filesToUpload = [
-    { id: 'macro', label: 'Sites MACRO' },
-    { id: 'cssr2g', label: 'CSSR 2G' },
-    { id: 'cssr3g', label: 'CSSR 3G' },
-    { id: 'cssr4g', label: 'CSSR 4G' },
-    { id: 'dcr2g', label: 'DCR 2G' },
-    { id: 'dcr3g', label: 'DCR 3G' },
-    { id: 'dcr4g', label: 'DCR 4G' },
-    { id: 'traffic', label: 'Traffic' },
+    { id: 'HUAWEI_2G', label: 'HUAWEI 2G' },
+    { id: 'HUAWEI_3G', label: 'HUAWEI 3G' },
+    { id: 'HUAWEI_4G', label: 'HUAWEI 4G' },
+    { id: 'ZTE_2G', label: 'ZTE 2G' },
+    { id: 'ZTE_3G', label: 'ZTE 3G' },
+    { id: 'ZTE_4G', label: 'ZTE 4G' },
+    { id: 'NOKIA', label: 'NOKIA (All Techs)' },
   ];
 
-  const handleFileUpload = (e, id) => {
+  const handleFileUpload = async (e, id) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    setLoading(true);
     const reader = new FileReader();
-    reader.onload = (evt) => {
-      const bstr = evt.target.result;
-      const wb = XLSX.read(bstr, { type: 'binary' });
-      const wsname = wb.SheetNames[0];
-      const ws = wb.Sheets[wsname];
-      const data = XLSX.utils.sheet_to_json(ws);
+    reader.onload = async (evt) => {
+      try {
+        const bstr = evt.target.result;
+        const wb = XLSX.read(bstr, { type: 'binary' });
 
-      if (id === 'macro') {
-        setSiteData(data);
-      } else {
-        setKpiData(prev => {
-          const newKpiData = { ...prev };
-          if (id.startsWith('cssr')) {
-            const tech = id.replace('cssr', '').toUpperCase();
-            newKpiData.cssr[tech] = data;
-          } else if (id.startsWith('dcr')) {
-            const tech = id.replace('dcr', '').toUpperCase();
-            newKpiData.dcr[tech] = data;
-          } else if (id === 'traffic') {
-            newKpiData.traffic = data;
-          }
-          return newKpiData;
-        });
+        let allKPIs = [];
+        if (id === 'NOKIA') {
+          // Nokia has multiple sheets
+          ['2G', '3G', '4G'].forEach(tech => {
+            const ws = wb.Sheets[tech];
+            if (ws) {
+              const data = XLSX.utils.sheet_to_json(ws);
+              allKPIs = [...allKPIs, ...parseVendorData(data, `NOKIA_${tech}`)];
+            }
+          });
+        } else {
+          const wsname = wb.SheetNames[0];
+          const ws = wb.Sheets[wsname];
+          const data = XLSX.utils.sheet_to_json(ws);
+          allKPIs = parseVendorData(data, id);
+        }
+
+        await saveKPIs(allKPIs);
+        setUploadedFiles(prev => ({ ...prev, [id]: true }));
+      } catch (error) {
+        console.error("Error parsing file:", error);
+        alert("Error parsing file. Please check format.");
+      } finally {
+        setLoading(false);
       }
-      setUploadedFiles(prev => ({ ...prev, [id]: true }));
     };
     reader.readAsBinaryString(file);
   };
@@ -57,6 +63,10 @@ const LandingPage = ({ onContinue }) => {
   const handleAuth = (e) => {
     e.preventDefault();
     setIsAuth(true);
+  };
+
+  const handleStart = async () => {
+    onContinue();
   };
 
   const allFilesUploaded = filesToUpload.every(f => uploadedFiles[f.id]);
@@ -190,12 +200,13 @@ const LandingPage = ({ onContinue }) => {
                       ${uploadedFiles[file.id]
                         ? 'bg-green-500/10 border-green-500 text-green-500'
                         : 'bg-slate-800/50 border-slate-700 hover:border-brand-accent text-slate-400 hover:text-white'
-                      }`}
+                      } ${loading ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <input
                       type="file"
                       accept=".xlsx, .xls, .csv"
                       className="hidden"
+                      disabled={loading}
                       onChange={(e) => handleFileUpload(e, file.id)}
                     />
                     {uploadedFiles[file.id] ? (
@@ -203,21 +214,32 @@ const LandingPage = ({ onContinue }) => {
                     ) : (
                       <Upload className="w-8 h-8 group-hover:scale-110 transition" />
                     )}
-                    <span className="text-xs font-semibold">{file.label}</span>
+                    <span className="text-xs font-semibold text-center">{file.label}</span>
                   </label>
                 ))}
               </div>
 
               <button
-                onClick={onContinue}
+                onClick={handleStart}
+                disabled={!allFilesUploaded || loading}
                 className={`w-full flex items-center justify-center space-x-2 py-4 rounded-xl font-bold transition
                   ${allFilesUploaded
                     ? 'bg-brand-accent hover:bg-cyan-500 text-brand-dark'
-                    : 'bg-slate-800 text-slate-500'
+                    : 'bg-slate-800 text-slate-500 cursor-not-allowed'
                   }`}
               >
-                <span>Go to Dashboard</span>
-                <ArrowRight className="w-5 h-5" />
+                <span>{loading ? 'Processing...' : 'Go to Dashboard'}</span>
+                {!loading && <ArrowRight className="w-5 h-5" />}
+              </button>
+
+              <button
+                onClick={async () => {
+                  await clearDatabase();
+                  setUploadedFiles({});
+                }}
+                className="w-full text-xs text-slate-500 hover:text-red-400 transition"
+              >
+                Clear all data
               </button>
             </div>
           )}
